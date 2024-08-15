@@ -1,39 +1,31 @@
-package com.zsl.tinycat;
+package com.zsl.tinycat.connector;
 
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
+import com.zsl.tinycat.engine.HttpServletRequestImpl;
+import com.zsl.tinycat.engine.HttpServletResponseImpl;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.PrintWriter;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
-import java.util.concurrent.locks.LockSupport;
 
 @Slf4j
-public class SimpleHttpServer implements HttpHandler, AutoCloseable {
-
-    public static void main(String[] args) {
-        String host = "0.0.0.0";
-        int port = 8080;
-        try (SimpleHttpServer connector = new SimpleHttpServer(host, port)) {
-            while (true) {
-                Thread.sleep(10000);
-            }
-        } catch (Exception e) {
-            log.warn("stopped with exception.", e);
-        }
-    }
+public class HttpConnector implements HttpHandler, AutoCloseable {
 
     final HttpServer httpServer;
     final String host;
     final int port;
 
-    public SimpleHttpServer(String host, int port) throws IOException {
+    public HttpConnector(String host, int port) throws IOException {
         this.host = host;
         this.port = port;
         this.httpServer = HttpServer.create(new InetSocketAddress(host, port), 0);
@@ -51,17 +43,25 @@ public class SimpleHttpServer implements HttpHandler, AutoCloseable {
 
         log.info("{}: {}?{}", method, path, query);
 
-        Headers respHeaders = exchange.getResponseHeaders();
-        respHeaders.set("Content-Type", "text/html; charset=utf-8");
-        respHeaders.set("Cache-Control", "no-cache");
-        // 设置200响应:
-        exchange.sendResponseHeaders(200, 0);
+        var adaptor = new HttpExchangeAdaptor(exchange);
+        var request = new HttpServletRequestImpl(adaptor);
+        var response = new HttpServletResponseImpl(adaptor);
 
-        String s = "<h1>Hello, world.</h1><p>" + LocalDateTime.now().withNano(0) + "</p>";
 
-        try (OutputStream outputStream = exchange.getResponseBody()) {
-            outputStream.write(s.getBytes(StandardCharsets.UTF_8));
+        try {
+            process(request, response);
+        } catch (Exception e) {
+            log.error("process with exception.", e);
         }
+    }
+
+    private void process(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        String name = request.getParameter("name");
+        String html = "<h1>Hello, " + (name == null ? "world" : name) + ".</h1>";
+        response.setContentType("text/html");
+        PrintWriter writer = response.getWriter();
+        writer.write(html);
+        writer.close();
     }
 
     @Override
